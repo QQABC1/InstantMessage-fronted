@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useUserStore from '../store/userStore';
 import useChatStore from '../store/chatStore';
@@ -9,22 +9,28 @@ import NotificationModal from '../components/NotificationModal';
 import { getGroupListReq } from '../api/group';
 import CreateGroupModal from '../components/CreateGroupModal';
 import JoinGroupModal from '../components/JoinGroupModal';
+import { useWebSocket } from '../hooks/useWebSocket'; 
+import { MsgType } from '../utils/constants'; 
 const ChatRoom = () => {
   const navigate = useNavigate();
 
   // 全局状态
   const { userInfo, logout } = useUserStore();
+  const { currentSession, messages } = useChatStore(); // 取出 messages
   const {
     friendList,
     setFriendList,
     groupList,
     setGroupList,
-    currentSession,
     setCurrentSession
   } = useChatStore();
 
 
+    // 初始化 WebSocket
+  const { sendText } = useWebSocket(); 
 
+  const [inputText, setInputText] = useState('');
+  const scrollRef = useRef(null); // 用于滚动到底部
   // 本地状态：控制侧边栏 Tab 切换 (0: 好友, 1: 群组)
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -52,6 +58,13 @@ const ChatRoom = () => {
     fetchData();
   }, [activeTab, setFriendList, setGroupList]);
 
+    // 自动滚动到底部
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, currentSession]);
+
   // 渲染头像 (如果没头像则用首字母占位)
   const renderAvatar = (url, name) => {
     if (url) {
@@ -64,6 +77,24 @@ const ChatRoom = () => {
     );
   };
 
+    // 发送处理
+  const handleSend = () => {
+    if (!inputText.trim() || !currentSession) return;
+    
+    // 发送消息
+    // currentSession.userId 是好友ID (单聊)
+    // currentSession.id 是群组ID (群聊，之前代码存的是id)
+    const targetId = currentSession.sessionType === 'group' ? currentSession.id : currentSession.userId;
+    const type = currentSession.sessionType === 'group' ? 2 : 1;
+
+    sendText(targetId, inputText, type);
+    setInputText('');
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleSend();
+  };
+ // 登录退出按钮
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -229,50 +260,103 @@ const ChatRoom = () => {
         </div>
       </aside>
 
-      {/* ================= 右侧聊天区域 (Chat Area) ================= */}
-      <main className="flex-1 bg-white flex flex-col relative">
+ <main className="flex-1 bg-white flex flex-col relative">
         {currentSession ? (
           <>
-            {/* 聊天头部 */}
+            {/* 1. Header (保持不变) */}
             <header className="h-16 border-b border-gray-200 flex items-center px-6 justify-between bg-white shadow-sm z-10">
               <div>
                 <h3 className="text-lg font-bold text-gray-800">
-                  {currentSession.remark || currentSession.nickname}
+                  {currentSession.groupName || currentSession.remark || currentSession.nickname}
                 </h3>
-                <div className="flex items-center text-xs text-gray-500">
-                  {currentSession.online ? (
-                    <span className="text-green-600 flex items-center">
-                      <span className="w-1.5 h-1.5 bg-green-600 rounded-full mr-1"></span>在线
-                    </span>
-                  ) : '离线'}
+                <div className="text-xs text-gray-500">
+                  {currentSession.sessionType === 'group' 
+                    ? `群组 ID: ${currentSession.id}` 
+                    : (currentSession.online ? <span className="text-green-600">● 在线</span> : '离线')}
                 </div>
               </div>
-
-              {/* 右侧工具栏 (更多操作) */}
-              <button className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                </svg>
-              </button>
             </header>
 
-            {/* 消息列表占位 */}
-            <div className="flex-1 bg-violet-50/30 p-6 overflow-y-auto">
-              <div className="text-center text-gray-400 text-sm mt-20">
-                这里是与 {currentSession.nickname} 的聊天记录<br />
-                (WebSocket 消息对接中...)
-              </div>
+            {/* 2. 消息列表 (核心修改) */}
+            <div 
+              ref={scrollRef}
+              className="flex-1 bg-violet-50/30 p-6 overflow-y-auto space-y-4"
+            >
+              {/* 获取当前会话的消息列表 */}
+              {(messages[currentSession.userId || currentSession.id] || []).map((msg, index) => {
+                const isMe = msg.senderId === userInfo.id;
+                
+                return (
+                  <div key={index} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    
+                    {/* 对方头像 */}
+                    {!isMe && (
+                      <div className="w-9 h-9 rounded-full bg-violet-200 flex items-center justify-center text-xs text-violet-700 font-bold mr-2 flex-shrink-0">
+                        {/* 简单起见，不查对方具体头像了，用 ? 代替 */}
+                        TA
+                      </div>
+                    )}
+
+                    <div className="max-w-[70%]">
+                      {/* 昵称 (群聊时显示) */}
+                      {!isMe && currentSession.sessionType === 'group' && (
+                        <div className="text-xs text-gray-400 mb-1 ml-1">{msg.senderId}</div>
+                      )}
+
+                      {/* 气泡本体 */}
+                      <div 
+                        className={`px-4 py-2.5 shadow-sm text-sm break-all ${
+                          isMe 
+                            ? 'bg-violet-600 text-white rounded-l-2xl rounded-tr-2xl rounded-br-sm' // 我的: 电光紫
+                            : 'bg-white text-gray-800 border border-gray-100 rounded-r-2xl rounded-tl-2xl rounded-bl-sm' // 对方: 白色
+                        }`}
+                        style={{
+                           // 如果后端传了字体样式，可以在这里应用
+                           fontSize: msg.data.font?.size + 'px',
+                           color: isMe ? '#fff' : (msg.data.font?.color || 'inherit'),
+                           fontWeight: msg.data.font?.bold ? 'bold' : 'normal'
+                        }}
+                      >
+                        {msg.type === MsgType.CHAT_TEXT && msg.data.content}
+                        {msg.type === MsgType.CHAT_FILE && <span>[文件] {msg.data.content}</span>}
+                      </div>
+                    </div>
+
+                    {/* 我的头像 */}
+                    {isMe && (
+                      <img 
+                        src={userInfo.avatar || `https://api.dicebear.com/7.x/miniavs/svg?seed=${userInfo.username}`} 
+                        className="w-9 h-9 rounded-full bg-gray-200 ml-2 flex-shrink-0 object-cover" 
+                        alt="me"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              
+              {/* 空消息提示 */}
+              {(!messages[currentSession.userId || currentSession.id] || messages[currentSession.userId || currentSession.id].length === 0) && (
+                <div className="text-center text-gray-400 text-xs mt-10">
+                  - 既然相遇，不如聊聊 -
+                </div>
+              )}
             </div>
 
-            {/* 输入框占位 */}
+            {/* 3. 输入框 (绑定事件) */}
             <div className="p-4 bg-white border-t border-gray-200">
               <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
-                <input
-                  type="text"
-                  className="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400 h-10"
+                <input 
+                  type="text" 
+                  className="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400 h-10" 
                   placeholder="发送消息..."
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDown}
                 />
-                <button className="ml-2 bg-violet-600 hover:bg-violet-700 text-white p-2 rounded-lg transition-colors shadow-md">
+                <button 
+                  onClick={handleSend}
+                  className="ml-2 bg-violet-600 hover:bg-violet-700 text-white p-2 rounded-lg transition-colors shadow-md active:scale-95"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 transform -rotate-45 translate-x-0.5 translate-y-[-1px]">
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
                   </svg>
@@ -281,14 +365,11 @@ const ChatRoom = () => {
             </div>
           </>
         ) : (
-          // 空状态 (未选中任何好友)
           <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 text-gray-400">
-            <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-gray-400">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12.375m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-              </svg>
-            </div>
-            <p>选择一个好友开始聊天</p>
+             <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4">
+               <span className="text-4xl grayscale">👋</span>
+             </div>
+             <p>选择一个好友或群组开始聊天</p>
           </div>
         )}
       </main>
