@@ -6,12 +6,23 @@ import { getFriendListReq } from '../api/contact';
 import ProfileModal from '../components/ProfileModal';
 import AddFriendModal from '../components/AddFriendModal';
 import NotificationModal from '../components/NotificationModal';
+import { getGroupListReq } from '../api/group';
+import CreateGroupModal from '../components/CreateGroupModal';
+import JoinGroupModal from '../components/JoinGroupModal';
 const ChatRoom = () => {
   const navigate = useNavigate();
 
   // 全局状态
   const { userInfo, logout } = useUserStore();
-  const { friendList, setFriendList, currentSession, setCurrentSession } = useChatStore();
+  const {
+    friendList,
+    setFriendList,
+    groupList,
+    setGroupList,
+    currentSession,
+    setCurrentSession
+  } = useChatStore();
+
 
 
   // 本地状态：控制侧边栏 Tab 切换 (0: 好友, 1: 群组)
@@ -20,29 +31,26 @@ const ChatRoom = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
 
-  // 初始化加载好友列表
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
       try {
-        const res = await getFriendListReq();
-        if (res.code === 200) {
-          setFriendList(res.data);
+        if (activeTab === 0) {
+          const res = await getFriendListReq();
+          if (res.code === 200) setFriendList(res.data);
+        } else {
+          // === 新增群组加载逻辑 ===
+          const res = await getGroupListReq();
+          if (res.code === 200) setGroupList(res.data);
         }
-      } catch (error) {
-        console.error("加载好友失败", error);
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error(error); }
+      finally { setLoading(false); }
     };
     fetchData();
-  }, [setFriendList]);
-
-  // 处理登出
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  }, [activeTab, setFriendList, setGroupList]);
 
   // 渲染头像 (如果没头像则用首字母占位)
   const renderAvatar = (url, name) => {
@@ -54,6 +62,11 @@ const ChatRoom = () => {
         {name ? name.charAt(0).toUpperCase() : '?'}
       </div>
     );
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   return (
@@ -105,29 +118,30 @@ const ChatRoom = () => {
               </svg>
             </div>
 
-            {/* 新增：添加好友按钮 (+) */}
-            <button
-              onClick={() => setIsAddFriendOpen(true)}
-              className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg shadow-md transition-all active:scale-95"
-              title="添加好友"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            </button>
-
-            {/* 新增: 通知按钮 (铃铛) */}
-            <button
-              onClick={() => setIsNotificationOpen(true)}
-              className="p-2 bg-white/10 text-gray-300 hover:bg-violet-600 hover:text-white rounded-lg transition-all relative"
-              title="好友通知"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-              </svg>
-              {/* 这里可以通过 Store 判断是否有未读红点，暂时写死一个红点示例 */}
-              {/* <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-[#1e1b4b]"></span> */}
-            </button>
+            {/* 动态按钮：好友页显示[添加][通知]，群组页显示[创建][加入] */}
+            {activeTab === 0 ? (
+              <>
+                <button onClick={() => setIsAddFriendOpen(true)} className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg shadow-md transition-all active:scale-95" title="添加好友">
+                  {/* ...加号图标... */}
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                </button>
+                <button onClick={() => setIsNotificationOpen(true)} className="p-2 bg-white/10 text-gray-300 hover:bg-violet-600 hover:text-white rounded-lg transition-all" title="通知">
+                  {/* ...铃铛图标... */}
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>
+                </button>
+              </>
+            ) : (
+              <>
+                {/* 创建群组按钮 */}
+                <button onClick={() => setIsCreateGroupOpen(true)} className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg shadow-md transition-all active:scale-95" title="创建群组">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                </button>
+                {/* 加入群组按钮 */}
+                <button onClick={() => setIsJoinGroupOpen(true)} className="p-2 bg-white/10 text-gray-300 hover:bg-violet-600 hover:text-white rounded-lg transition-all" title="加入群组">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -188,10 +202,30 @@ const ChatRoom = () => {
                 </div>
               ))}
             </div>
-          ) : (
-            // === 群组列表 (占位) ===
-            <div className="text-center text-gray-500 mt-10 text-sm">暂无群组</div>
-          )}
+          ) : activeTab === 1 ? (
+            // === 群组列表 ===
+            groupList.length === 0 ? <div className="text-center text-gray-500 mt-10 text-sm">暂无群组</div> :
+              groupList.map((group) => (
+                <div
+                  key={group.id}
+                  onClick={() => setCurrentSession({ ...group, sessionType: 'group' })} // 标记类型
+                  className={`flex items-center p-3 rounded-xl cursor-pointer transition-all duration-200 ${currentSession?.id === group.id && currentSession?.sessionType === 'group' ? 'bg-violet-600 shadow-lg shadow-violet-900/50' : 'hover:bg-white/5'}`}
+                >
+                  <div className="relative">
+                    {/* 群头像：isGroup=true 使用圆角方形 */}
+                    {renderAvatar(null, group.groupName, true)}
+                  </div>
+                  <div className="ml-3 overflow-hidden">
+                    <div className={`text-sm font-medium truncate ${currentSession?.id === group.id ? 'text-white' : 'text-gray-200'}`}>
+                      {group.groupName}
+                    </div>
+                    <div className={`text-xs truncate ${currentSession?.id === group.id ? 'text-violet-200' : 'text-gray-500'}`}>
+                      ID: {group.id} {group.role === 3 ? '(群主)' : ''}
+                    </div>
+                  </div>
+                </div>
+              ))
+          ) : null}
         </div>
       </aside>
 
@@ -271,6 +305,14 @@ const ChatRoom = () => {
       <NotificationModal
         isOpen={isNotificationOpen}
         onClose={() => setIsNotificationOpen(false)}
+      />
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+      />
+      <JoinGroupModal
+        isOpen={isJoinGroupOpen}
+        onClose={() => setIsJoinGroupOpen(false)}
       />
 
     </div>
