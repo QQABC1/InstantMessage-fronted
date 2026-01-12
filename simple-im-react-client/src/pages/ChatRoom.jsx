@@ -4,6 +4,8 @@ import useUserStore from '../store/userStore';
 import useChatStore from '../store/chatStore';
 import { getFriendListReq } from '../api/contact';
 import ProfileModal from '../components/ProfileModal';
+import AddFriendModal from '../components/AddFriendModal';
+import NotificationModal from '../components/NotificationModal';
 const ChatRoom = () => {
   const navigate = useNavigate();
 
@@ -16,6 +18,8 @@ const ChatRoom = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   // 初始化加载好友列表
   useEffect(() => {
@@ -88,15 +92,42 @@ const ChatRoom = () => {
 
         {/* 2. 搜索框 */}
         <div className="px-4 py-3">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="搜索好友/群组..."
-              className="w-full bg-black/20 text-sm text-white placeholder-gray-400 border border-transparent focus:border-violet-500 rounded-lg pl-9 pr-3 py-2 outline-none transition-all"
-            />
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-400 absolute left-3 top-2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
+          {/* 2. 搜索框 & 添加按钮 */}
+          <div className="px-4 py-3 flex items-center space-x-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="过滤列表..." // 注意：这里的搜索通常是过滤本地列表
+                className="w-full bg-black/20 text-sm text-white placeholder-gray-400 border border-transparent focus:border-violet-500 rounded-lg pl-9 pr-3 py-2 outline-none transition-all"
+              />
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-400 absolute left-3 top-2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+            </div>
+
+            {/* 新增：添加好友按钮 (+) */}
+            <button
+              onClick={() => setIsAddFriendOpen(true)}
+              className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg shadow-md transition-all active:scale-95"
+              title="添加好友"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            </button>
+
+            {/* 新增: 通知按钮 (铃铛) */}
+            <button
+              onClick={() => setIsNotificationOpen(true)}
+              className="p-2 bg-white/10 text-gray-300 hover:bg-violet-600 hover:text-white rounded-lg transition-all relative"
+              title="好友通知"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+              {/* 这里可以通过 Store 判断是否有未读红点，暂时写死一个红点示例 */}
+              {/* <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-[#1e1b4b]"></span> */}
+            </button>
           </div>
         </div>
 
@@ -148,7 +179,7 @@ const ChatRoom = () => {
                   {/* 文本信息 */}
                   <div className="ml-3 overflow-hidden">
                     <div className={`text-sm font-medium truncate ${currentSession?.userId === friend.userId ? 'text-white' : 'text-gray-200'}`}>
-                      {friend.remark || friend.nickname}
+                      {friend.nickname}
                     </div>
                     <div className={`text-xs truncate ${currentSession?.userId === friend.userId ? 'text-violet-200' : 'text-gray-500'}`}>
                       {friend.online ? '[在线]' : '[离线]'} 点击发起聊天
@@ -233,7 +264,18 @@ const ChatRoom = () => {
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
       />
+      <AddFriendModal
+        isOpen={isAddFriendOpen}
+        onClose={() => setIsAddFriendOpen(false)}
+      />
+      <NotificationModal
+        isOpen={isNotificationOpen}
+        onClose={() => setIsNotificationOpen(false)}
+      />
+
     </div>
+
+
   );
 };
 
