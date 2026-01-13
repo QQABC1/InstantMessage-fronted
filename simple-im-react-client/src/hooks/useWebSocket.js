@@ -2,13 +2,16 @@ import { useEffect, useRef } from 'react';
 import useUserStore from '../store/userStore';
 import useChatStore from '../store/chatStore';
 import { MsgType } from '../utils/constants';
+import toast from 'react-hot-toast';
+import noticeSound from '/shake.mp3';
 
 const WS_URL = 'ws://localhost:8888/im'; // 后端 Netty 地址
 
 export const useWebSocket = () => {
     const ws = useRef(null);
     const { userInfo } = useUserStore(); // 获取当前登录用户
-    const { addMessage, updateFriendStatus } = useChatStore();
+    const { addMessage, updateFriendStatus, setHasNewFriendRequest } = useChatStore();
+    //TODO 创建音频对象
 
 
     useEffect(() => {
@@ -59,6 +62,26 @@ export const useWebSocket = () => {
                     updateFriendStatus(msg.senderId, isOnline);
                     console.log(`用户 ${msg.senderId} ${isOnline ? '上线' : '下线'}`);
                 }
+
+                // 处理好友申请通知
+                if (msg.type === MsgType.FRIEND_REQUEST) {
+                    // 1. 设置红点状态
+                    setHasNewFriendRequest(true);
+
+                    // 2. 播放提示音
+                    audio.play().catch(e => console.log('播放声音失败(需交互)', e));
+
+                    // 3. 弹出顶部 Toast 提示
+                    toast('收到新的好友申请！', {
+                        icon: '👋',
+                        style: {
+                            borderRadius: '10px',
+                            background: '#333',
+                            color: '#fff',
+                        },
+                        duration: 4000,
+                    });
+                }
             } catch (e) {
                 console.error('解析消息失败', e);
             }
@@ -79,6 +102,15 @@ export const useWebSocket = () => {
             ws.current.send(JSON.stringify(packet));
         } else {
             console.warn('WS未连接');
+        }
+    };
+
+    //  手动断开函数
+    const closeSocket = () => {
+        if (ws.current) {
+            console.log('🚪 执行手动断开 WebSocket');
+            ws.current.close();
+            ws.current = null;
         }
     };
 
@@ -103,5 +135,29 @@ export const useWebSocket = () => {
         // addMessage(receiverId, { ...packet, sendTime: new Date().toISOString() });
     };
 
-    return { sendText };
+    //：发送文件/图片消息
+    const sendFile = (receiverId, fileData, sessionType = 1) => {
+        // fileData 结构: { url: "http...", fileName: "a.png", fileSize: 1024 }
+        const packet = {
+            type: MsgType.CHAT_FILE, // Type = 2
+            senderId: userInfo.id,
+            receiverId: receiverId,
+            sessionType: sessionType,
+            data: {
+                content: '[图片]', // 简略文本，用于会话列表展示
+                url: fileData.url, // 图片真实地址
+                fileName: fileData.fileName,
+                fileSize: fileData.fileSize
+            }
+        };
+
+        sendMessage(packet);
+
+        // 乐观更新上屏
+        addMessage(receiverId, { ...packet, sendTime: new Date().toISOString() });
+    };
+
+
+
+    return { sendText, sendFile, closeSocket};
 };

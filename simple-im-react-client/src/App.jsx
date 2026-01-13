@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import NotFound from './pages/NotFound';
+import { Toaster } from 'react-hot-toast';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/register" element={<Login isRegisterMode />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      <Toaster position="top-center" reverseOrder={false} />
     </BrowserRouter>
   );
 }

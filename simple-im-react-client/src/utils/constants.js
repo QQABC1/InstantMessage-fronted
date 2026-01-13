@@ -4,5 +4,6 @@ export const MsgType = {
     CHAT_NUDGE: 3,
     HEARTBEAT: 4,
     AUTH: 5,
-    USER_STATUS: 6 
+    USER_STATUS: 6,
+    FRIEND_REQUEST: 7
 };

@@ -9,9 +9,11 @@ import NotificationModal from '../components/NotificationModal';
 import { getGroupListReq } from '../api/group';
 import CreateGroupModal from '../components/CreateGroupModal';
 import JoinGroupModal from '../components/JoinGroupModal';
-import { useWebSocket } from '../hooks/useWebSocket'; 
+import { useWebSocket } from '../hooks/useWebSocket';
 import { MsgType } from '../utils/constants';
 import { getHistoryMsgReq } from '../api/chat';
+import { uploadFileReq } from '../utils/file';
+
 const ChatRoom = () => {
   const navigate = useNavigate();
 
@@ -28,9 +30,10 @@ const ChatRoom = () => {
   } = useChatStore();
 
 
-    // 初始化 WebSocket
-  const { sendText } = useWebSocket(); 
 
+  // 初始化 WebSocket
+  const { sendText, sendFile, closeSocket } = useWebSocket();
+  const fileInputRef = useRef(null); // 创建 Ref 用于触发点击
   const [inputText, setInputText] = useState('');
   const scrollRef = useRef(null); // 用于滚动到底部
   // 本地状态：控制侧边栏 Tab 切换 (0: 好友, 1: 群组)
@@ -53,42 +56,57 @@ const ChatRoom = () => {
     const targetId = currentSession.sessionType === 'group' ? currentSession.id : currentSession.userId;
     const type = currentSession.sessionType === 'group' ? 2 : 1;
 
-    // 获取历史消息
+// 获取历史消息
     const loadHistory = async () => {
       try {
-        const res = await getHistoryMsgReq({ 
-          targetId: targetId, 
-          sessionType: type 
+        const res = await getHistoryMsgReq({
+          targetId: targetId,
+          sessionType: type
         });
 
         if (res.code === 200) {
           // ⚠️ 数据格式转换 ⚠️
-          // 后端返回的是 DB Entity (Message)，前端 UI 需要的是 WSMsg 格式
-          // 需要做一次 mapping
           const historyList = res.data.map(dbMsg => {
-            // 解析扩展字段里的字体 JSON
+            
+            // ---------------------------------------------------------
+            // 1. 处理富文本 (msgType === 2)
+            // ---------------------------------------------------------
             let fontStyle = {};
             try {
-              // 兼容处理：如果 content 是 JSON 字符串(富文本)，或者 extra 存了字体
-              // 这里假设简单版本：字体存content的json里，或者extra里
-              // 根据之前的 saveMessage 逻辑：
-              // 如果是文本(type=1)，content是纯文本
-              // 如果是富文本(type=2)，content是JSON字符串
-              
-              if (dbMsg.msgType === 2 || dbMsg.content.startsWith('{')) {
-                 const dataObj = JSON.parse(dbMsg.content);
-                 return {
-                   type: 1, // 前端统一视为文本渲染
-                   senderId: dbMsg.fromId,
-                   receiverId: dbMsg.toId,
-                   data: dataObj // dataObj 包含 { content: "...", font: {...} }
-                 };
+              if (dbMsg.msgType === 2 || (typeof dbMsg.content === 'string' && dbMsg.content.startsWith('{'))) {
+                const dataObj = JSON.parse(dbMsg.content);
+                return {
+                  type: 1, // 前端 UI 视为文本 (MsgType.CHAT_TEXT)
+                  senderId: dbMsg.fromId,
+                  receiverId: dbMsg.toId,
+                  data: dataObj 
+                };
               }
-            } catch (e) {}
+            } catch (e) { }
 
-            // 默认兜底转换 (纯文本)
+            // ---------------------------------------------------------
+            // 2. 处理图片/文件 (msgType === 3)
+            // 根据你的 JSON 数据，msgType: 3 且 content 是 URL
+            // ---------------------------------------------------------
+            if (dbMsg.msgType === 3) {
+               return {
+                 type: 2, // 对应前端常量 MsgType.CHAT_FILE (通常是2)
+                 senderId: dbMsg.fromId,
+                 receiverId: dbMsg.toId,
+                 data: {
+                   url: dbMsg.content,      // 数据库 content 字段直接存的是 URL
+                   content: '[图片]',        // 文本展示占位符
+                   fileName: '图片',         // 历史记录没存文件名，给个默认值
+                   fileSize: 0              // 历史记录没存大小，给个默认值
+                 }
+               };
+            }
+
+            // ---------------------------------------------------------
+            // 3. 默认兜底转换 (msgType === 1 或其他)
+            // ---------------------------------------------------------
             return {
-              type: dbMsg.msgType, // 1:文本 2:富文本 3:文件
+              type: 1, // MsgType.CHAT_TEXT
               senderId: dbMsg.fromId,
               receiverId: dbMsg.toId,
               data: {
@@ -128,7 +146,7 @@ const ChatRoom = () => {
     fetchData();
   }, [activeTab, setFriendList, setGroupList]);
 
-    // 自动滚动到底部
+  // 自动滚动到底部
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -147,10 +165,10 @@ const ChatRoom = () => {
     );
   };
 
-    // 发送处理
+  // 发送处理
   const handleSend = () => {
     if (!inputText.trim() || !currentSession) return;
-    
+
     // 发送消息
     // currentSession.userId 是好友ID (单聊)
     // currentSession.id 是群组ID (群聊，之前代码存的是id)
@@ -164,10 +182,53 @@ const ChatRoom = () => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleSend();
   };
- // 登录退出按钮
+  // 登录退出按钮
   const handleLogout = () => {
+    //  先断网
+    closeSocket(); 
     logout();
     navigate('/login');
+  };
+
+  //处理点击通知按钮
+  const handleOpenNotification = () => {
+    setIsNotificationOpen(true);
+    setHasNewFriendRequest(false); // 点击后消除红点
+  };
+  // 处理文件选择
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 简单校验
+    if (file.size > 10 * 1024 * 1024) { // 10MB
+      alert('文件不能超过 10MB');
+      return;
+    }
+
+    // 1. 构造 FormData
+    const formData = new FormData();
+    formData.append('file', file); // 后端接口参数名为 'file'
+
+    try {
+      // 2. 上传到服务器
+      const res = await uploadFileReq(formData);
+
+      if (res.code === 200) {
+        // res.data 对应 FileUploadVO: { url, fileName, fileSize }
+        const targetId = currentSession.sessionType === 'group' ? currentSession.id : currentSession.userId;
+        const type = currentSession.sessionType === 'group' ? 2 : 1;
+
+        // 3. 通过 WebSocket 发送图片链接
+        sendFile(targetId, res.data, type);
+      }
+    } catch (error) {
+      console.error('上传失败', error);
+      alert('图片发送失败');
+    } finally {
+      // 清空 input，防止无法连续上传同一张图
+      e.target.value = '';
+    }
   };
 
   return (
@@ -229,6 +290,7 @@ const ChatRoom = () => {
                 <button onClick={() => setIsNotificationOpen(true)} className="p-2 bg-white/10 text-gray-300 hover:bg-violet-600 hover:text-white rounded-lg transition-all" title="通知">
                   {/* ...铃铛图标... */}
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>
+
                 </button>
               </>
             ) : (
@@ -330,8 +392,8 @@ const ChatRoom = () => {
         </div>
       </aside>
 
-{/* 聊天框 */}
- <main className="flex-1 bg-white flex flex-col relative">
+      {/* 聊天框 */}
+      <main className="flex-1 bg-white flex flex-col relative">
         {currentSession ? (
           <>
             {/* 1. Header (保持不变) */}
@@ -341,25 +403,25 @@ const ChatRoom = () => {
                   {currentSession.groupName || currentSession.nickname}
                 </h3>
                 <div className="text-xs text-gray-500">
-                  {currentSession.sessionType === 'group' 
-                    ? `群组 ID: ${currentSession.id}` 
+                  {currentSession.sessionType === 'group'
+                    ? `群组 ID: ${currentSession.id}`
                     : (currentSession.online ? <span className="text-green-600">● 在线</span> : '离线')}
                 </div>
               </div>
             </header>
 
             {/* 2. 消息列表 (核心修改) */}
-            <div 
+            <div
               ref={scrollRef}
               className="flex-1 bg-violet-50/30 p-6 overflow-y-auto space-y-4"
             >
               {/* 获取当前会话的消息列表 */}
               {(messages[currentSession.userId || currentSession.id] || []).map((msg, index) => {
                 const isMe = msg.senderId === userInfo.id;
-                
+
                 return (
                   <div key={index} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    
+
                     {/* 对方头像 */}
                     {!isMe && (
                       <div className="w-9 h-9 rounded-full bg-violet-200 flex items-center justify-center text-xs text-violet-700 font-bold mr-2 flex-shrink-0">
@@ -375,36 +437,46 @@ const ChatRoom = () => {
                       )}
 
                       {/* 气泡本体 */}
-                      <div 
-                        className={`px-4 py-2.5 shadow-sm text-sm break-all ${
-                          isMe 
-                            ? 'bg-violet-600 text-white rounded-l-2xl rounded-tr-2xl rounded-br-sm' // 我的: 电光紫
-                            : 'bg-white text-gray-800 border border-gray-100 rounded-r-2xl rounded-tl-2xl rounded-bl-sm' // 对方: 白色
-                        }`}
+                      <div
+                        className={`px-4 py-2.5 shadow-sm text-sm break-all ${isMe
+                          ? 'bg-violet-600 text-white rounded-l-2xl rounded-tr-2xl rounded-br-sm' // 我的: 电光紫
+                          : 'bg-white text-gray-800 border border-gray-100 rounded-r-2xl rounded-tl-2xl rounded-bl-sm' // 对方: 白色
+                          }`}
                         style={{
-                           // 如果后端传了字体样式，可以在这里应用
-                           fontSize: msg.data.font?.size + 'px',
-                           color: isMe ? '#fff' : (msg.data.font?.color || 'inherit'),
-                           fontWeight: msg.data.font?.bold ? 'bold' : 'normal'
+                          // 如果后端传了字体样式，可以在这里应用
+                          fontSize: msg.data.font?.size + 'px',
+                          color: isMe ? '#fff' : (msg.data.font?.color || 'inherit'),
+                          fontWeight: msg.data.font?.bold ? 'bold' : 'normal'
                         }}
                       >
+                        {/* 文本消息 */}
                         {msg.type === MsgType.CHAT_TEXT && msg.data.content}
-                        {msg.type === MsgType.CHAT_FILE && <span>[文件] {msg.data.content}</span>}
+                        {/* 图片消息渲染 */}
+                        {msg.type === MsgType.CHAT_FILE && (
+                          <div className="group cursor-pointer">
+                            <img
+                              src={msg.data.url}
+                              alt="chat-img"
+                              className="max-w-[200px] max-h-[200px] rounded-lg object-cover hover:opacity-90 transition"
+                              onClick={() => window.open(msg.data.url, '_blank')} // 点击查看大图
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* 我的头像 */}
                     {isMe && (
-                      <img 
-                        src={userInfo.avatar || `https://api.dicebear.com/7.x/miniavs/svg?seed=${userInfo.username}`} 
-                        className="w-9 h-9 rounded-full bg-gray-200 ml-2 flex-shrink-0 object-cover" 
+                      <img
+                        src={userInfo.avatar || `https://api.dicebear.com/7.x/miniavs/svg?seed=${userInfo.username}`}
+                        className="w-9 h-9 rounded-full bg-gray-200 ml-2 flex-shrink-0 object-cover"
                         alt="me"
                       />
                     )}
                   </div>
                 );
               })}
-              
+
               {/* 空消息提示 */}
               {(!messages[currentSession.userId || currentSession.id] || messages[currentSession.userId || currentSession.id].length === 0) && (
                 <div className="text-center text-gray-400 text-xs mt-10">
@@ -413,18 +485,37 @@ const ChatRoom = () => {
               )}
             </div>
 
+            {/* 隐藏的文件输入框 */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*" // 限制只选图片
+              onChange={handleFileChange}
+            />
             {/* 3. 输入框 (绑定事件) */}
             <div className="p-4 bg-white border-t border-gray-200">
               <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200 focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
-                <input 
-                  type="text" 
-                  className="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400 h-10" 
+                {/* ✅ 新增：图片上传按钮 (图标) */}
+                <button
+                  onClick={() => fileInputRef.current.click()} // 触发隐藏的input
+                  className="mr-2 text-gray-400 hover:text-violet-600 transition-colors"
+                  title="发送图片"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                  </svg>
+                </button>
+                <input
+                  type="text"
+                  className="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400 h-10"
                   placeholder="发送消息..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={handleKeyDown}
                 />
-                <button 
+
+                <button
                   onClick={handleSend}
                   className="ml-2 bg-violet-600 hover:bg-violet-700 text-white p-2 rounded-lg transition-colors shadow-md active:scale-95"
                 >
@@ -437,10 +528,10 @@ const ChatRoom = () => {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 text-gray-400">
-             <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-               <span className="text-4xl grayscale">👋</span>
-             </div>
-             <p>选择一个好友或群组开始聊天</p>
+            <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4">
+              <span className="text-4xl grayscale">👋</span>
+            </div>
+            <p>选择一个好友或群组开始聊天</p>
           </div>
         )}
       </main>
