@@ -3,7 +3,7 @@ import axios from 'axios';
 // 创建 axios 实例
 const request = axios.create({
   // 开发环境通常配置代理，这里直接写相对路径，由 Vite 代理到后端 8080
-  baseURL: '', 
+  baseURL: '',
   timeout: 5000,
   headers: {
     'Content-Type': 'application/json;charset=utf-8'
@@ -15,6 +15,17 @@ request.interceptors.request.use(
   config => {
     // 如果有 token，带上 token (从 localStorage 取)
     const token = localStorage.getItem('token');
+    if (!token) {
+      // 使用路由跳转（适用于 React Router / Vue Router）
+      // router.replace('/login'); // 需要先引入 router 实例
+
+      // 或者直接使用原生跳转（通用）
+      window.location.href = '/login'; // 假设你的登录页路由为 '/login'
+
+      // 中断此次请求的 Promise 链
+      return Promise.reject(new Error('未认证，已跳转至登录页'));
+    }
+
     if (token) {
       config.headers['Authorization'] = token; // 注意后端是 Bearer token，这里假设存的时候已经拼好了或者后端只认纯token
     }
