@@ -10,7 +10,8 @@ import { getGroupListReq } from '../api/group';
 import CreateGroupModal from '../components/CreateGroupModal';
 import JoinGroupModal from '../components/JoinGroupModal';
 import { useWebSocket } from '../hooks/useWebSocket'; 
-import { MsgType } from '../utils/constants'; 
+import { MsgType } from '../utils/constants';
+import { getHistoryMsgReq } from '../api/chat';
 const ChatRoom = () => {
   const navigate = useNavigate();
 
@@ -22,7 +23,8 @@ const ChatRoom = () => {
     setFriendList,
     groupList,
     setGroupList,
-    setCurrentSession
+    setCurrentSession,
+    setSessionMessages
   } = useChatStore();
 
 
@@ -39,6 +41,74 @@ const ChatRoom = () => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
+
+
+
+
+  // ✅ 核心逻辑：监听会话切换，加载历史记录
+  useEffect(() => {
+    // 如果没有选中会话，或者该会话的消息已经加载过(可选缓存策略)，则不请求
+    if (!currentSession) return;
+
+    const targetId = currentSession.sessionType === 'group' ? currentSession.id : currentSession.userId;
+    const type = currentSession.sessionType === 'group' ? 2 : 1;
+
+    // 获取历史消息
+    const loadHistory = async () => {
+      try {
+        const res = await getHistoryMsgReq({ 
+          targetId: targetId, 
+          sessionType: type 
+        });
+
+        if (res.code === 200) {
+          // ⚠️ 数据格式转换 ⚠️
+          // 后端返回的是 DB Entity (Message)，前端 UI 需要的是 WSMsg 格式
+          // 需要做一次 mapping
+          const historyList = res.data.map(dbMsg => {
+            // 解析扩展字段里的字体 JSON
+            let fontStyle = {};
+            try {
+              // 兼容处理：如果 content 是 JSON 字符串(富文本)，或者 extra 存了字体
+              // 这里假设简单版本：字体存content的json里，或者extra里
+              // 根据之前的 saveMessage 逻辑：
+              // 如果是文本(type=1)，content是纯文本
+              // 如果是富文本(type=2)，content是JSON字符串
+              
+              if (dbMsg.msgType === 2 || dbMsg.content.startsWith('{')) {
+                 const dataObj = JSON.parse(dbMsg.content);
+                 return {
+                   type: 1, // 前端统一视为文本渲染
+                   senderId: dbMsg.fromId,
+                   receiverId: dbMsg.toId,
+                   data: dataObj // dataObj 包含 { content: "...", font: {...} }
+                 };
+              }
+            } catch (e) {}
+
+            // 默认兜底转换 (纯文本)
+            return {
+              type: dbMsg.msgType, // 1:文本 2:富文本 3:文件
+              senderId: dbMsg.fromId,
+              receiverId: dbMsg.toId,
+              data: {
+                content: dbMsg.content,
+                font: { size: 14, color: "#000000" } // 默认字体
+              }
+            };
+          });
+
+          // 更新 Store
+          setSessionMessages(targetId, historyList);
+        }
+      } catch (error) {
+        console.error("加载历史记录失败", error);
+      }
+    };
+
+    loadHistory();
+
+  }, [currentSession]); // 依赖 currentSession，切换时触发
 
   useEffect(() => {
     const fetchData = async () => {
@@ -115,7 +185,7 @@ const ChatRoom = () => {
           >
             {renderAvatar(userInfo.avatar || "https://api.dicebear.com/7.x/miniavs/svg?seed=" + userInfo.username, userInfo.nickname)}
             <div>
-              <div className="font-semibold text-sm">{userInfo.nickname || userInfo.username}</div>
+              <div className="font-semibold text-sm">{userInfo.nickname}</div>
               <div className="text-xs text-green-400 flex items-center">
                 <span className="w-2 h-2 rounded-full bg-green-500 mr-1 animate-pulse"></span>
                 在线
@@ -260,6 +330,7 @@ const ChatRoom = () => {
         </div>
       </aside>
 
+{/* 聊天框 */}
  <main className="flex-1 bg-white flex flex-col relative">
         {currentSession ? (
           <>
@@ -267,7 +338,7 @@ const ChatRoom = () => {
             <header className="h-16 border-b border-gray-200 flex items-center px-6 justify-between bg-white shadow-sm z-10">
               <div>
                 <h3 className="text-lg font-bold text-gray-800">
-                  {currentSession.groupName || currentSession.remark || currentSession.nickname}
+                  {currentSession.groupName || currentSession.nickname}
                 </h3>
                 <div className="text-xs text-gray-500">
                   {currentSession.sessionType === 'group' 

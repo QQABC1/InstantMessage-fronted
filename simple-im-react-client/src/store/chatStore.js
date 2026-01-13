@@ -27,6 +27,16 @@ const useChatStore = create((set) => ({
         }
       };
     });
+  },
+
+    // 2. 设置完整消息列表 (用于 Step 5: 历史漫游)
+  setSessionMessages: (sessionId, msgList) => {
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [sessionId]: msgList
+      }
+    }));
   }
 }));
 

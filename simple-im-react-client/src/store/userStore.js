@@ -31,7 +31,20 @@ const useUserStore = create((set) => ({
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
     set({ token: '', userInfo: {} });
+  },
+
+    //更新指定好友的在线状态
+  updateFriendStatus: (friendId, isOnline) => {
+    set((state) => ({
+      friendList: state.friendList.map((friend) => 
+        // 找到对应的 friendId，只更新 online 字段
+        friend.userId === friendId 
+          ? { ...friend, online: isOnline } 
+          : friend
+      )
+    }));
   }
+
 }));
 
 export default useUserStore;
