@@ -14,7 +14,8 @@ const useChatStore = create((set) => ({
 
   // 设置群组列表
   setGroupList: (list) => set({ groupList: list }),
-
+  //更新有新好友状态
+  setHasNewFriendRequest: (status) => set({ hasNewFriendRequest: status }),
   // 选中某个会话
   setCurrentSession: (session) => set({ currentSession: session }),
   // 接收/发送消息时调用

@@ -68,9 +68,6 @@ export const useWebSocket = () => {
                     // 1. 设置红点状态
                     setHasNewFriendRequest(true);
 
-                    // 2. 播放提示音
-                    audio.play().catch(e => console.log('播放声音失败(需交互)', e));
-
                     // 3. 弹出顶部 Toast 提示
                     toast('收到新的好友申请！', {
                         icon: '👋',
