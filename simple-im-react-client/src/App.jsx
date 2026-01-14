@@ -1,27 +1,36 @@
-// src/App.jsx
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import ChatRoom from './pages/ChatRoom';
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
-import NotFound from './pages/NotFound';
+import ChatRoom from './pages/ChatRoom';
+import AuthGuard from './components/AuthGuard'; // 引入守卫
 import { Toaster } from 'react-hot-toast';
 
 function App() {
   return (
-    <BrowserRouter>
+    <>
       <Routes>
-        <Route path="/" element={<ChatRoom />} />
-        <Route path="/chat" element={<ChatRoom />} />
-        <Route path="/chat/:friendId" element={<ChatRoom />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/settings" element={<Settings />} />
+        {/* 1. 根路径重定向：一进来就跳到 /login */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+
+        {/* 2. 公开页面：登录/注册 */}
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Login isRegisterMode />} />
-        <Route path="*" element={<NotFound />} />
+
+        {/* 3. 受保护页面：必须登录才能访问 */}
+        <Route 
+          path="/chat" 
+          element={
+            <AuthGuard>
+              <ChatRoom />
+            </AuthGuard>
+          } 
+        />
+
+        {/* 4. 404 处理 (可选，未匹配路由跳回登录) */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
-      <Toaster position="top-center" reverseOrder={false} />
-    </BrowserRouter>
+      
+      <Toaster position="top-center" />
+    </>
   );
 }
 
